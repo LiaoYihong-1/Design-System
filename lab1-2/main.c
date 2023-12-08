@@ -61,6 +61,7 @@ uint8_t pointer_read = 0;
 uint8_t pointer_write = 0;
 uint8_t mode = 'i';
 _Bool received = 0;
+_Bool changed = 0;
 void delay_analog(uint32_t duration)
   {
     uint32_t startTime = HAL_GetTick();
@@ -96,17 +97,7 @@ void blink_code(uint32_t code){
 		char c = string[p];
 		//change mode between interrupt and polling
 		if(c=='3'){
-			if(mode == 'i'){
-				mode = 'p';
-				char s [] = "Turning to poling\n";
-				__disable_irq();
-				HAL_UART_Transmit(&huart6,(uint8_t*)s,sizeof(s),10);
-			}else{
-				mode = 'i';
-				char s [] = "Turning to interrupt\n";
-				__enable_irq();
-				HAL_UART_Transmit_IT(&huart6,(uint8_t*)s,sizeof(s));
-			}
+			changed = 1;
 		}else if(c=='1'){
 			blink_long(1);
 		}else if(c=='2'){
@@ -407,6 +398,25 @@ int main(void)
 		HAL_UART_Receive_IT(&huart6,codes,1);
 	}
   }
+  void mode_changed(){
+	  if(changed){
+		changed = 0;
+		if(mode == 'i'){
+			mode = 'p';
+			char s [] = "Turning to poling\r\n";
+			HAL_UART_Abort_IT(&huart6);
+			HAL_NVIC_DisableIRQ(USART6_IRQn);
+			HAL_UART_Transmit(&huart6,(uint8_t*)s,sizeof(s),10);
+		}else{
+			mode = 'i';
+			char s [] = "Turning to interrupt\r\n";
+			HAL_UART_Abort_IT(&huart6);
+			HAL_NVIC_EnableIRQ(USART6_IRQn);
+			HAL_UART_Transmit(&huart6,(uint8_t*)s,sizeof(s),100);
+			HAL_UART_Receive_IT(&huart6,codes,1);
+		}
+	}
+  }
 	uint8_t code_morse[50];
 	uint8_t last_morse_index = 0;
 	uint32_t duration = 5000;
@@ -422,13 +432,11 @@ int main(void)
   while (1)
   {
 	  	received_chars();
+	  	mode_changed();
 	  	if(mode=='p'){
 			// If received 8 codes in 5s, then we can read them, else read again
 			while(mode == 'p'){
-
-				HAL_UART_Transmit(&huart6,(uint8_t*)z,sizeof(z),10);
 				if(HAL_UART_Receive(&huart6,codes,1,1000)==HAL_OK){
-					HAL_UART_Transmit(&huart6,(uint8_t*)s,sizeof(s),10);
 					uint8_t k = 0;
 					uint8_t n = sizeof(codes)/sizeof(uint8_t);
 					while(k<n){
@@ -436,6 +444,7 @@ int main(void)
 						k = k + 1;
 					}
 				}
+			  	mode_changed();
 			}
 		}
 		uint32_t time_start = HAL_GetTick();
